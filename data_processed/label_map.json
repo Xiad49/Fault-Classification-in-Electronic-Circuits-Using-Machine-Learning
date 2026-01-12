@@ -1,0 +1,7 @@
+{
+    "fault_A": 0,
+    "fault_B": 1,
+    "fault_C": 2,
+    "fault_D": 3,
+    "normal": 4
+}

@@ -1,0 +1,287 @@
+\documentclass[10pt,twocolumn,letterpaper]{article}
+
+\usepackage{cvpr}              % CAMERA-READY
+\usepackage{times}
+\usepackage{epsfig}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{microtype}
+\usepackage{siunitx}
+\usepackage{enumitem}
+
+
+\usepackage[pagebackref,breaklinks,colorlinks]{hyperref}
+
+\def\cvprPaperID{*****} % not used, kept for template compatibility
+\def\confName{CVPR}
+\def\confYear{2026}
+
+\cvprfinalcopy
+\pagestyle{empty}
+
+\begin{document}
+
+%%%%%%%%% TITLE
+\title{Feature-Based Circuit Fault Diagnosis with Classical Machine Learning Baselines}
+
+\author{MD Ziad Bin Sorwar (2023331426)\\
+Electronics and Information Engineering\\
+{\tt\small xiad79@gmail.com}
+}
+
+\maketitle
+
+%%%%%%%%% ABSTRACT
+\begin{abstract}
+Fault-type recognition in electrical circuits is commonly presented with high accuracies, yet baseline systems are not always reported when only tabular features are available. In this work, a supervised multi-class circuit fault diagnosis pipeline is implemented on a CSV dataset with $23{,}000$ samples, $10$ numeric features, and $5$ fault classes. No new measurements are collected; instead, labels are mapped to integer IDs, stratified train/validation/test splits are created, missing values are mean-imputed, and features are standardized using statistics computed only on the training split. Three baselines are trained with automated hyperparameter search: an SVM, $k$-nearest neighbors, and a shallow multilayer perceptron.
+
+On the held-out test set ($N=4600$), the resulting performance is not improved beyond a majority-class predictor for two models. An accuracy of $50.63\%$ is obtained by the SVM and the shallow network, which matches the majority-class proportion; in both cases, minority classes are not recovered (zero recall on four classes). A lower accuracy of $42.50\%$ is obtained by $k$-NN with limited minority recall. The observed majority-class collapse is documented and is used to motivate cost-sensitive training and richer signal features as necessary extensions for practical fault diagnosis.
+\end{abstract}
+
+%%%%%%%%% BODY TEXT
+\section{Introduction}
+Circuit fault diagnosis has been treated as a classification task where abnormal operating conditions are mapped to discrete fault labels. In many practical settings, a fault label is not obtained from a single scalar measurement; instead, multiple sensor channels or derived statistics are used, and the diagnosis problem is reduced to learning a decision rule on a feature vector. While end-to-end approaches can be pursued, they are not always feasible in classroom projects where only tabular features are provided and where heavy data collection is not permitted.
+
+In this project, a feature-based diagnosis pipeline is implemented using the provided Python codebase. A CSV dataset is processed into train/validation/test splits, and three baseline classifiers are trained and evaluated. The objective is not claimed to be state-of-the-art. Instead, a reproducible baseline is established and a negative result is documented: strong performance is not obtained when imbalance and feature limitations are not explicitly addressed.
+
+\section{Background and Related Work}
+Support vector machines (SVMs) have been widely used for classification with limited data due to their margin-based generalization properties~\cite{cortes1995svm}. $k$-nearest neighbors ($k$-NN) has been treated as a non-parametric baseline that relies on local similarity in feature space~\cite{cover1967knn}. Shallow neural networks trained with backpropagation remain a standard baseline when expressive but lightweight models are needed~\cite{rumelhart1986backprop}. More broadly, classical supervised pipelines on engineered features are covered in standard texts such as~\cite{bishop2006prml}, where the risks of over-relying on accuracy under distributional and class-frequency biases are not ignored. 
+
+In imbalanced multi-class classification, it has been repeatedly reported that accuracy can be dominated by the majority class and that minority recall can be suppressed when class weighting or resampling is not applied~\cite{he2009imbalanced}. Since class imbalance is not avoided in the provided dataset (Sec.~\ref{sec:data}), an analysis of majority-class collapse is treated as part of the main contribution.
+
+\section{Approach}
+The pipeline is organized as a sequence of modular scripts: dataset preprocessing (Data\_Preprocessing.py), model training (Train\_Models.py), and optional experiment orchestration (run\_experiment.py). A schematic overview is given in Fig.~\ref{fig:pipeline}.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{fig_pipeline.png}
+  \caption{Pipeline overview. Raw CSV data are processed into saved artifacts, and models are trained/evaluated using the same splits.}
+  \label{fig:pipeline}
+\end{figure}
+
+
+\subsection{Problem formulation}
+Let $\mathbf{x}\in\mathbb{R}^{d}$ be a feature vector and $y\in\{0,\dots,K-1\}$ be a fault label. A classifier $f_\theta$ is trained to approximate $p(y\mid \mathbf{x})$ or to output a discrete label $\hat{y}=f_\theta(\mathbf{x})$. In all experiments, $d=10$ and $K=5$.
+
+
+\subsection{Optional simulation and feature extraction}
+A simulation module (\texttt{Simulate\_Circuit.py}) is included in the codebase, where RLC circuit variants and fault conditions can be generated procedurally. A separate feature module (\texttt{Feature\_Extraction.py}) contains time-domain summary statistics (mean, RMS, peak-to-peak, skewness, kurtosis) and frequency-domain descriptors (FFT peak frequency, spectral bandpower). These components are not executed in the reported training run; therefore, results are not claimed to have benefited from simulated augmentation. However, their presence indicates that raw waveforms are not required to be discarded, and a future extension can be implemented where the CSV dataset is regenerated with richer frequency-selective signatures rather than relying on the current $d=10$ feature set alone.
+
+\subsection{Preprocessing}
+A label column is detected and is mapped to integer IDs. The dataset is split with stratification into train/validation/test using fixed proportions (64/16/20). Missing values are not left untreated: numeric columns are imputed by the mean. Features are standardized as
+\begin{equation}
+\tilde{\mathbf{x}} = \frac{\mathbf{x}-\boldsymbol{\mu}}{\boldsymbol{\sigma}},
+\end{equation}
+where $\boldsymbol{\mu}$ and $\boldsymbol{\sigma}$ are estimated on the training set only. The processed arrays are saved to disk to ensure that training is repeatable without re-running preprocessing.
+
+\subsection{Models}
+\textbf{SVM.} A multi-class SVM is trained using a one-vs-rest reduction. The decision is obtained as
+\begin{equation}
+\hat{y} = \arg\max_{c} \left( \mathbf{w}_c^\top \phi(\mathbf{x}) + b_c \right),
+\end{equation}
+where $\phi(\cdot)$ is determined by the kernel (linear, RBF, polynomial) and where $C$ controls margin regularization~\cite{cortes1995svm}.
+
+\textbf{$k$-NN.} For a query point $\mathbf{x}$, the $k$ closest training points are selected under a distance metric $D(\cdot,\cdot)$, and the predicted label is obtained by majority vote:
+\begin{equation}
+\hat{y}=\arg\max_{c}\sum_{i\in \mathcal{N}_k(\mathbf{x})}\mathbb{1}[y_i=c].
+\end{equation}
+
+\textbf{Shallow neural network.} A two-layer multilayer perceptron (MLP) is trained with a softmax output. In the provided implementation, a Dense--ReLU hidden layer is used, dropout is optionally inserted, and a Dense--softmax output layer is applied; therefore, no convolutional inductive bias is used and no sequence structure is exploited. For logits $\mathbf{z}\in\mathbb{R}^K$, the predicted probability is
+\begin{equation}
+p_\theta(y=c\mid\mathbf{x})=\frac{e^{z_c}}{\sum_{j=1}^K e^{z_j}}.
+\end{equation}
+Cross-entropy loss is minimized using Adam~\cite{kingma2015adam} as implemented in TensorFlow/Keras~\cite{abadi2016tensorflow}. Dropout is optionally applied, and the hidden width is tuned.
+
+\subsection{Hyperparameter search}
+For SVM and $k$-NN, grid search is performed with 5-fold cross-validation on the train+val set. The searched grids are:
+\begin{itemize}[leftmargin=*]
+\item SVM: $C\in\{0.1,1,10\}$, kernel $\in\{\text{linear},\text{rbf},\text{poly}\}$, and $\gamma\in\{\text{scale},\text{auto}\}$.
+\item $k$-NN: $k\in\{3,5,7\}$, weights $\in\{\text{uniform},\text{distance}\}$, and metric $\in\{\text{euclidean},\text{manhattan}\}$.
+\end{itemize}
+For the shallow network, randomized search is applied over hidden width $\in\{32,64,128\}$, dropout $\in\{0,0.2\}$, learning rate $\in\{10^{-3},5\cdot 10^{-4}\}$, and batch size $\in\{32,64\}$. Early stopping is not used; therefore, overfitting is not explicitly prevented beyond dropout.
+
+\section{Theoretical Results}
+\label{sec:theory}
+Because the class distribution is not uniform, accuracy is not an informative measure by itself. Let the test-set class proportions be $\pi_c = \frac{n_c}{N}$. If a constant predictor that always outputs the majority class $c^\star=\arg\max_c \pi_c$ is used, the expected accuracy is
+\begin{equation}
+\mathrm{Acc}_{\text{maj}} = \max_c \pi_c.
+\end{equation}
+For the considered test set, $n_{c^\star}=2329$ and $N=4600$, so $\mathrm{Acc}_{\text{maj}}=2329/4600\approx 0.5063$. Therefore, any model whose accuracy is near $50.63\%$ is not guaranteed to have learned discriminative structure; a majority-class collapse cannot be ruled out without per-class metrics.
+
+\section{Experimental Results}
+\label{sec:results}
+
+\subsection{Dataset and splits}
+\label{sec:data}
+The processed feature matrix is of shape $X\in\mathbb{R}^{18400\times 10}$ for train+val, and a held-out test set of size $4600$ is used for evaluation. Five classes are present after label mapping. The test-set distribution is shown in Fig.~\ref{fig:classdist}; class 4 is not rare, while other classes are not dominant.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{fig_class_dist.png}
+  \caption{Test-set class distribution ($N=4600$). Imbalance is not negligible; class 4 constitutes $50.6\%$ of the test set.}
+  \label{fig:classdist}
+\end{figure}
+
+\subsection{Metrics}
+Accuracy, per-class precision/recall/F1, and confusion matrices are reported. Macro-averaged F1 is emphasized because minority classes should not be ignored.
+
+\subsection{Reproducibility and implementation details}
+All experiments are executed through the provided scripts. Preprocessing is performed by \texttt{Data\_Preprocessing.py}, where the label map is saved (\texttt{label\_map.json}) and the standardized arrays are exported (\texttt{X\_train.npy}, \texttt{X\_val.npy}, \texttt{X\_test.npy}, and corresponding labels). Model training is performed by \texttt{Train\_Models.py}, where cross-validation is executed and where trained models are serialized (\texttt{*.joblib} for scikit-learn models and \texttt{*.keras} for the MLP). JSON summaries containing hyperparameters and metrics are produced for each model run. A typical execution is not hidden:
+\begin{verbatim}
+python Data_Preprocessing.py
+python Train_Models.py
+\end{verbatim}
+Scikit-learn is used for SVM/$k$-NN and model selection~\cite{pedregosa2011sklearn}, while TensorFlow/Keras is used for the shallow network~\cite{abadi2016tensorflow}. No GPU-specific code is required; CPU execution is sufficient for the presented feature dimensionality.
+
+\subsection{Cost-sensitive weighting (not enabled)}
+Class weights are computed during preprocessing but are not passed into the current training calls. For class counts $\{n_c\}_{c=0}^{K-1}$ and total $N$, a common balanced weight is
+\begin{equation}
+w_c = \frac{N}{K\,n_c}.
+\end{equation}
+If these weights are not used, minority mistakes are not penalized, and a degenerate majority-class optimum can be reached.
+
+
+\subsection{Quantitative results}
+A summary is given in Table~\ref{tab:main}. Detailed per-class scores are provided in Table~\ref{tab:perclass}. It is observed that the SVM and shallow network are not improved beyond the majority baseline in Sec.~\ref{sec:theory}. $k$-NN does not collapse fully, but a performance drop is observed, likely due to noisy neighborhoods in the standardized feature space.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Model & Accuracy & Macro F1 & Weighted F1 \\
+\midrule
+SVM (grid search) & 0.5063 & 0.13 & 0.34 \\
+$k$-NN (grid search) & 0.4250 & 0.18 & 0.35 \\
+Shallow NN (rand. search) & 0.5063 & 0.13 & 0.34 \\
+\bottomrule
+\end{tabular}
+\caption{Test-set performance (from the training logs). Majority-class accuracy is $0.5063$, so the SVM and shallow NN are not discriminative.}
+\label{tab:main}
+\end{table}
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{c|ccc|ccc|ccc}
+\toprule
+& \multicolumn{3}{c|}{SVM} & \multicolumn{3}{c|}{$k$-NN} & \multicolumn{3}{c}{Shallow NN} \\
+Class & P & R & F1 & P & R & F1 & P & R & F1 \\
+\midrule
+0 & 0.00 & 0.00 & 0.00 & 0.15 & 0.08 & 0.10 & 0.00 & 0.00 & 0.00 \\
+1 & 0.00 & 0.00 & 0.00 & 0.13 & 0.07 & 0.09 & 0.00 & 0.00 & 0.00 \\
+2 & 0.00 & 0.00 & 0.00 & 0.12 & 0.04 & 0.06 & 0.00 & 0.00 & 0.00 \\
+3 & 0.00 & 0.00 & 0.00 & 0.08 & 0.03 & 0.04 & 0.00 & 0.00 & 0.00 \\
+4 & 0.51 & 1.00 & 0.67 & 0.51 & 0.78 & 0.62 & 0.51 & 1.00 & 0.67 \\
+\bottomrule
+\end{tabular}
+\caption{Per-class precision (P), recall (R), and F1 on the test set. For two models, non-majority classes are not detected.}
+\label{tab:perclass}
+\end{table*}
+
+
+
+\subsection{Confusion-matrix analysis}
+In Fig.~\ref{fig:cmsvm} and Fig.~\ref{fig:cmnn}, only the last column is populated, so four classes are not predicted at all. Such a result is not compatible with a useful diagnostic system, even though the accuracy appears ``reasonable'' due to imbalance.
+
+To make the collapse more explicit, per-class recall is shown in Fig.~\ref{fig:recall}. It is observed that recall is not distributed across classes for the SVM and shallow network, while $k$-NN recovers minority classes only weakly.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{fig_recall.png}
+  \caption{Per-class recall. For two models, minority recall is not obtained at all.}
+  \label{fig:recall}
+\end{figure}
+ $k$-NN (Fig.~\ref{fig:cmknn}) predicts minority classes occasionally, yet minority recall remains low.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{fig_svm_cm.png}
+  \caption{SVM confusion matrix. Non-majority classes are not recovered (zero recall for classes 0--3).}
+  \label{fig:cmsvm}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{fig_knn_cm.png}
+  \caption{$k$-NN confusion matrix. Predictions are not collapsed to a single class, yet large confusion into class 4 is not avoided.}
+  \label{fig:cmknn}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.98\linewidth]{fig_nn_cm.png}
+  \caption{Shallow NN confusion matrix. A majority-class collapse is again observed.}
+  \label{fig:cmnn}
+\end{figure}
+
+\subsection{Failure modes and debugging hypotheses}
+Several causes are plausible and are not mutually exclusive:
+\begin{itemize}[leftmargin=*]
+\item \textbf{Class imbalance was not mitigated during training.} Although class weights are computed in preprocessing, they are not passed into SVM training (\texttt{class\_weight}) and are not used in the Keras loss. Therefore, minority errors are not penalized.
+\item \textbf{Feature expressivity may be insufficient.} Only 10 aggregated features are used. If fault signatures are frequency-selective, time/frequency-domain descriptors (e.g., FFT peaks) are expected to be needed, but they are not necessarily included in the current CSV.
+\item \textbf{Model capacity is not the only bottleneck.} The shallow network is not under-parameterized for $d=10$, yet collapse is still observed, suggesting that optimization is not guided toward minority separation.
+\item \textbf{Evaluation highlights that ``accuracy'' is not safe.} A high-looking accuracy is not meaningful when macro recall is near zero.
+\end{itemize}
+
+\section{Conclusion}
+A reproducible circuit fault diagnosis baseline has been implemented using a modular Python pipeline with preprocessing, cross-validated training, and artifact saving. However, strong classification is not achieved: two models are not improved beyond a majority-class predictor, and minority faults are not detected. These negative results are considered informative because they show that imbalance and feature design cannot be treated as optional details.
+
+In future work, performance is expected to be improved by (i) enabling class-weighted training (\texttt{class\_weight='balanced'} for SVM and weighted cross-entropy for the MLP), (ii) augmenting features with frequency-domain descriptors using the provided feature extraction module, and (iii) evaluating with calibration and cost-sensitive metrics so that unsafe majority collapse is not hidden.
+
+
+\begin{thebibliography}{10}
+\small
+
+\bibitem{cortes1995svm}
+C.~Cortes and V.~Vapnik.
+\newblock Support-vector networks.
+\newblock \emph{Machine Learning}, 20(3):273--297, 1995.
+
+\bibitem{cover1967knn}
+T.~Cover and P.~Hart.
+\newblock Nearest neighbor pattern classification.
+\newblock \emph{IEEE Transactions on Information Theory}, 13(1):21--27, 1967.
+
+\bibitem{rumelhart1986backprop}
+D.~E. Rumelhart, G.~E. Hinton, and R.~J. Williams.
+\newblock Learning representations by back-propagating errors.
+\newblock \emph{Nature}, 323(6088):533--536, 1986.
+
+\bibitem{bishop2006prml}
+C.~M. Bishop.
+\newblock \emph{Pattern Recognition and Machine Learning}.
+\newblock Springer, 2006.
+
+\bibitem{he2009imbalanced}
+H.~He and E.~A. Garcia.
+\newblock Learning from imbalanced data.
+\newblock \emph{IEEE Transactions on Knowledge and Data Engineering},
+  21(9):1263--1284, 2009.
+
+\bibitem{kingma2015adam}
+D.~P. Kingma and J.~Ba.
+\newblock Adam: A method for stochastic optimization.
+\newblock In \emph{International Conference on Learning Representations}, 2015.
+
+\bibitem{abadi2016tensorflow}
+M.~Abadi et~al.
+\newblock TensorFlow: A system for large-scale machine learning.
+\newblock In \emph{OSDI}, 2016.
+
+\bibitem{pedregosa2011sklearn}
+F.~Pedregosa et~al.
+\newblock Scikit-learn: Machine learning in Python.
+\newblock In \emph{Proceedings of the 12th Python in Science Conference (SciPy)},
+  2011.
+
+\end{thebibliography}
+
+\section*{Project Repository}
+The implementation and full experimental pipeline are publicly available at:
+\url{https://github.com/Xiad49/Fault-Classification-in-Electronic-Circuits-Using-Machine-Learning}
+
+
+\end{document}

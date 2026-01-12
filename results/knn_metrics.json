@@ -1,0 +1,12 @@
+{
+    "model": "knn",
+    "accuracy": 0.8852173913043478,
+    "samples": 23000,
+    "labels": {
+        "0": "fault_A",
+        "1": "fault_B",
+        "2": "fault_C",
+        "3": "fault_D",
+        "4": "normal"
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "model": "svm",
+    "accuracy": 0.5062608695652174,
+    "samples": 23000,
+    "labels": {
+        "0": "fault_A",
+        "1": "fault_B",
+        "2": "fault_C",
+        "3": "fault_D",
+        "4": "normal"
+    }
+}
